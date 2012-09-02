@@ -343,26 +343,17 @@ namespace RayTracer
             Stopwatch timer = Stopwatch.StartNew();
 
             this.Show();
-            int updateFreq = (height / Environment.ProcessorCount) / 4;
-            int updateCount = 0;
-            
+            var bits = bitmap.LockBits(new Rectangle(0, 0, width, height), System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+
             RayTracer rayTracer = new RayTracer(width, height, (int y, int rows, byte[] scanlines) =>
             {
-                var bits = bitmap.LockBits(new Rectangle(0, y, width, rows), System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-                
-                System.Runtime.InteropServices.Marshal.Copy(scanlines, 0, bits.Scan0, rows * bits.Stride);
+                System.Runtime.InteropServices.Marshal.Copy(scanlines, 0, bits.Scan0 + y * bits.Stride, rows * bits.Stride);
 
-                bitmap.UnlockBits(bits);
-
-                if (updateCount % updateFreq == 0)
-                {
-                    // TODO:    need to die! this is slow.
-                    //pictureBox.Refresh();
-                }
-                updateCount++;
             });
 
             rayTracer.Render(rayTracer.DefaultScene);
+            bitmap.UnlockBits(bits);
+
             pictureBox.Invalidate();
 
             timer.Stop();

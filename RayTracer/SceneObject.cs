@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace RayTracer
@@ -95,25 +96,6 @@ namespace RayTracer
 
         public override Intersection Intersect(Ray ray)
         {
-            /*Vector eo = Vector.Minus(Center, ray.Start);
-            float v = Vector.Dot(eo, ray.Dir);
-            float dist;
-            if (v < 0)
-            {
-                dist = 0;
-            }
-            else
-            {
-                float disc = (float)(Math.Pow(Radius, 2) - (Vector.Dot(eo, eo) - Math.Pow(v, 2)));
-                dist = disc < 0 ? 0 : (v - Sqrt(disc));
-            }
-            if (dist == 0) return null;
-            return new Intersection()
-            {
-                Thing = this,
-                Ray = ray,
-                Dist = dist
-            };*/
             float eox = Center.X - ray.Start.X;
             float eoy = Center.Y - ray.Start.Y;
             float eoz = Center.Z - ray.Start.Z;
@@ -124,7 +106,6 @@ namespace RayTracer
                 return null;
             }
 
-            //float disc = (float)(Math.Pow(Radius, 2) - ((eox * eox + eoy * eoy + eoz * eoz) - Math.Pow(v, 2)));
             float disc = Radius2 - ((eox * eox + eoy * eoy + eoz * eoz) - v * v);
 
             if (disc < 0)
@@ -163,13 +144,14 @@ namespace RayTracer
 
         public override Intersection Intersect(Ray ray)
         {
-            float denom = Vector.Dot(Norm, ray.Dir);
+            float denom = Norm.X * ray.Dir.X + Norm.Y * ray.Dir.Y + Norm.Z * ray.Dir.Z;
             if (denom > 0) return null;
+
             return new Intersection()
             {
                 Thing = this,
                 Ray = ray,
-                Dist = (Vector.Dot(Norm, ray.Start) + Offset) / (-denom)
+                Dist = (Norm.X * ray.Start.X + Norm.Y * ray.Start.Y + Norm.Z * ray.Start.Z + Offset) / (-denom)
             };
         }
 
