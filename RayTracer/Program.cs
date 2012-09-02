@@ -217,7 +217,7 @@ namespace RayTracer
             ScanlineTask[] scanLineTasks = new ScanlineTask[processorCount];
             Task[] tasks = new Task[processorCount];
             byte[] scanlines = new byte[processorCount * screenWidth * 4];
-
+            
             for (int i = 0; i < processorCount; i++)
             {
                 scanLineTasks[i] = new ScanlineTask(screenWidth, i * screenWidth * 4, scanlines, (x, y) => TraceRay(new Ray()
