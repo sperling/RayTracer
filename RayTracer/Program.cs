@@ -50,8 +50,10 @@ namespace RayTracer
         {
             Intersection closest = new Intersection() { Dist = float.MaxValue, Thing = null, Ray = null };
 
-            foreach (var thing in scene.Things)
+            for (int i = 0; i < scene.Things.Length; i++)
             {
+                var thing = scene.Things[i];
+
                 Intersection intersection = thing.Intersect(ray);
 
                 if (intersection != null && intersection.Dist < closest.Dist)
@@ -359,6 +361,7 @@ namespace RayTracer
                 }
                 updateCount++;
             });
+
             rayTracer.Render(rayTracer.DefaultScene);
             pictureBox.Invalidate();
 
