@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Runtime.CompilerServices;
 
 namespace RayTracer
 {
@@ -33,6 +34,8 @@ namespace RayTracer
         {
             return new Vector(v.X * n, v.Y * n, v.Z * n);
         }
+
+        [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
         public static Vector Minus(Vector v1, Vector v2)
         {
             return new Vector(v1.X - v2.X, v1.Y - v2.Y, v1.Z - v2.Z);

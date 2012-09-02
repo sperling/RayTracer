@@ -144,7 +144,15 @@ namespace RayTracer
 
         public override Vector Normal(Vector pos)
         {
-            return Vector.Norm(Vector.Minus(pos, Center));
+            float vx = pos.X - Center.X;
+            float vy = pos.Y - Center.Y;
+            float vz = pos.Z - Center.Z;
+            float sqrLength, invLength;
+
+            sqrLength = vx * vx + vy * vy + vz * vz;
+            invLength = SceneObject.InvSqrt(sqrLength);
+
+            return new Vector(vx * invLength, vy * invLength, vz * invLength);
         }
     }
 

@@ -1,6 +1,4 @@
-﻿#define USE_CLOSEST
-
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -16,7 +14,13 @@ namespace RayTracer
     public class RayTracer
     {
         private int screenWidth;
+        private float screenWidth2;
+        private float screenWidthHalf;
+
         private int screenHeight;
+        private float screenHeight2;
+        private float screenHeightHalf;
+
         private const int MaxDepth = 5;
 
         public Action<int, int, byte[]> setScanlines;
@@ -24,7 +28,13 @@ namespace RayTracer
         public RayTracer(int screenWidth, int screenHeight, Action<int, int, byte[]> setScanlines)
         {
             this.screenWidth = screenWidth;
+            this.screenWidth2 = screenWidth * 2.0f;
+            this.screenWidthHalf = screenWidth / 2.0f;
+
             this.screenHeight = screenHeight;
+            this.screenHeight2 = screenHeight * 2.0f;
+            this.screenHeightHalf = screenHeight / 2.0f;
+
             this.setScanlines = setScanlines;
         }
 
@@ -38,32 +48,6 @@ namespace RayTracer
 
         private Intersection ClosestIntersection(Ray ray, Scene scene)
         {
-            /*SortedList<float, Intersection> intersections = new SortedList<float, Intersection>(scene.Things.Length);
-
-            foreach (var thing in scene.Things)
-            {
-                Intersection intersection = thing.Intersect(ray);
-
-                if (intersection != null)
-                {
-                    if (!intersections.ContainsKey(intersection.Dist))
-                    {
-                        intersections.Add(intersection.Dist, intersection);
-                    }
-                    // if last equal distance hit is needed.
-                    //else
-                    //{
-                    //    intersections[intersection.Dist] = intersection;
-                    //}
-                }
-            }
-
-            if (intersections.Count > 0)
-            {
-                return intersections.First().Value;
-            }
-
-            return null;*/
             Intersection closest = new Intersection() { Dist = float.MaxValue, Thing = null, Ray = null };
 
             foreach (var thing in scene.Things)
@@ -81,28 +65,13 @@ namespace RayTracer
 
         private float TestRay(Ray ray, Scene scene)
         {
-#if !USE_CLOSEST
-            var isects = Intersections(ray, scene);
-            Intersection isect = isects.FirstOrDefault();
-            if (isect == null)
-                return 0;
-            return isect.Dist;
-#else
             var i = ClosestIntersection(ray, scene);
 
             return i != null ? i.Dist : 0;
-#endif
         }
 
         private Color TraceRay(Ray ray, Scene scene, int depth)
         {
-#if !USE_CLOSEST
-            var isects = Intersections(ray, scene);
-            Intersection isect = isects.FirstOrDefault();
-            if (isect == null)
-                return Color.Background;
-            return Shade(isect, scene, depth);
-#else
             var i = ClosestIntersection(ray, scene);
 
             if (i == null)
@@ -111,7 +80,6 @@ namespace RayTracer
             }
 
             return Shade(i, scene, depth);
-#endif
         }
 
         private Color GetNaturalColor(SceneObject thing, Vector pos, Vector norm, Vector rd, Scene scene)
@@ -119,19 +87,25 @@ namespace RayTracer
             Color ret = new Color(Color.DefaultColor.R, Color.DefaultColor.G, Color.DefaultColor.B);
             Vector rdNormalized = Vector.Norm(rd);
 
-            foreach (Light light in scene.Lights)
+            for (int i = 0; i < scene.Lights.Length; i++)
             {
+                Light light = scene.Lights[i];
+                
                 Vector ldis = Vector.Minus(light.Pos, pos);
                 Vector livec = Vector.Norm(ldis);
+                
                 float neatIsect = TestRay(new Ray() { Start = pos, Dir = livec }, scene);
+                
+
                 bool isInShadow = !((neatIsect == 0) || (neatIsect > Vector.Mag(ldis)));
+
                 if (!isInShadow)
                 {
                     float illum = Vector.Dot(livec, norm);
                     float specular = Vector.Dot(livec, rdNormalized);
 
                     Color lcolor = illum > 0 ? Color.Times(illum, light.Color) : Color.Background;
-
+                    
                     Color scolor = specular > 0 ? Color.Times((float)Math.Pow(specular, thing.Surface.Roughness), light.Color) : Color.Background;
 
                     var diffuseSurfaceColor = thing.Surface.Diffuse(pos);
@@ -154,11 +128,23 @@ namespace RayTracer
         private Color Shade(Intersection isect, Scene scene, int depth)
         {
             var d = isect.Ray.Dir;
-            var pos = Vector.Plus(Vector.Times(isect.Dist, isect.Ray.Dir), isect.Ray.Start);
+            var pos = new Vector(
+                                    isect.Dist * isect.Ray.Dir.X + isect.Ray.Start.X,
+                                    isect.Dist * isect.Ray.Dir.Y + isect.Ray.Start.Y,
+                                    isect.Dist * isect.Ray.Dir.Z + isect.Ray.Start.Z
+                                );
             var normal = isect.Thing.Normal(pos);
             var reflectDir = Vector.Minus(d, Vector.Times(2 * Vector.Dot(normal, d), normal));
+            // TODO:    whats wrong with this?
+            /*var reflectDir = new Vector(
+                                        d.X - (2.0f * normal.X * d.X * normal.X),
+                                        d.Y - (2.0f * normal.Y * d.Y * normal.Y),
+                                        d.Z - (2.0f * normal.Z * d.Z * normal.Z)
+                                        );*/
+
             Color ret = Color.DefaultColor;
             ret = Color.Plus(ret, GetNaturalColor(isect.Thing, pos, normal, reflectDir, scene));
+            
             if (depth >= MaxDepth)
             {
                 return Color.Plus(ret, Color.Grey);
@@ -168,19 +154,27 @@ namespace RayTracer
 
         private float RecenterX(float x)
         {
-            // TODO:    precalculate constant terms.
-            return (x - (screenWidth / 2.0f)) / (2.0f * screenWidth);
+            return (x - screenWidthHalf) / screenWidth2;
         }
         private float RecenterY(float y)
         {
-            // TODO:    precalculate constant terms.
-            return -(y - (screenHeight / 2.0f)) / (2.0f * screenHeight);
+            return -(y - screenHeightHalf) / screenHeight2;
         }
 
         private Vector GetPoint(float x, float y, Camera camera)
         {
-            return Vector.Norm(Vector.Plus(camera.Forward, Vector.Plus(Vector.Times(RecenterX(x), camera.Right),
-                                                                       Vector.Times(RecenterY(y), camera.Up))));
+            float rx = RecenterX(x);
+            float ry = RecenterY(y);
+            float vx = camera.Forward.X + (rx * camera.Right.X + ry * camera.Up.X);
+            float vy = camera.Forward.Y + (rx * camera.Right.Y + ry * camera.Up.Y);
+            float vz = camera.Forward.Z + (rx * camera.Right.Z + ry * camera.Up.Z);
+
+            float sqrLength, invLength;
+
+            sqrLength = vx * vx + vy * vy + vz * vz;
+            invLength = SceneObject.InvSqrt(sqrLength);
+
+            return new Vector(vx * invLength, vy * invLength, vz * invLength);
         }
 
         class ScanlineTask
@@ -205,7 +199,7 @@ namespace RayTracer
                         for (int x = 0, i = _offset; x < _width; x++, i += 4)
                         {
                             Color color = _trace(x, y);
-
+                            
                             _scanline[i + 3] = 255;
                             _scanline[i + 0] = (byte)(color.B * 255);
                             _scanline[i + 1] = (byte)(color.G * 255);
@@ -218,29 +212,12 @@ namespace RayTracer
 
         internal unsafe void Render(Scene scene)
         {
-            /*for (int y = 0; y < screenHeight; y++)
-            {
-                byte[] scanline = new byte[screenWidth * 4];
-
-                for (int x = 0; x < screenWidth; x++)
-                {
-                    Color color = TraceRay(new Ray() { Start = scene.Camera.Pos, Dir = GetPoint(x, y, scene.Camera) }, scene, 0);
-                    int i = x * 4;
-                    scanline[i + 3] = 255;
-                    scanline[i + 0] = (byte)(color.B * 255);
-                    scanline[i + 1] = (byte)(color.G * 255);
-                    scanline[i + 2] = (byte)(color.R * 255);
-                }
-
-                setScanline(y, scanline);
-            }*/
-
             // TODO:    use more here? need to be height % processorCount == 0.
             int processorCount = Environment.ProcessorCount;
             ScanlineTask[] scanLineTasks = new ScanlineTask[processorCount];
             Task[] tasks = new Task[processorCount];
             byte[] scanlines = new byte[processorCount * screenWidth * 4];
-                
+
             for (int i = 0; i < processorCount; i++)
             {
                 scanLineTasks[i] = new ScanlineTask(screenWidth, i * screenWidth * 4, scanlines, (x, y) => TraceRay(new Ray()
@@ -378,7 +355,7 @@ namespace RayTracer
                 if (updateCount % updateFreq == 0)
                 {
                     // TODO:    need to die! this is slow.
-                    pictureBox.Refresh();
+                    //pictureBox.Refresh();
                 }
                 updateCount++;
             });
