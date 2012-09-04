@@ -11,7 +11,7 @@ using System.Threading;
 // http://blogs.msdn.com/b/lukeh/archive/2007/04/03/a-ray-tracer-in-c-3-0.aspx
 namespace RayTracer
 {
-    public class RayTracer
+    public unsafe class RayTracer
     {
         private int screenWidth;
         private float screenWidth2;
@@ -23,9 +23,9 @@ namespace RayTracer
 
         private const int MaxDepth = 5;
 
-        public Action<int, int, byte[]> setScanlines;
+        private byte* scanlines;
 
-        public RayTracer(int screenWidth, int screenHeight, Action<int, int, byte[]> setScanlines)
+        public RayTracer(int screenWidth, int screenHeight, byte *scanlines)
         {
             this.screenWidth = screenWidth;
             this.screenWidth2 = screenWidth * 2.0f;
@@ -35,7 +35,7 @@ namespace RayTracer
             this.screenHeight2 = screenHeight * 2.0f;
             this.screenHeightHalf = screenHeight / 2.0f;
 
-            this.setScanlines = setScanlines;
+            this.scanlines = scanlines;
         }
 
         private IEnumerable<Intersection> Intersections(Ray ray, Scene scene)
@@ -67,9 +67,21 @@ namespace RayTracer
 
         private float TestRay(Ray ray, Scene scene)
         {
-            var i = ClosestIntersection(ray, scene);
+            float d = float.MaxValue;
 
-            return i != null ? i.Dist : 0;
+            for (int i = 0; i < scene.Things.Length; i++)
+            {
+                var thing = scene.Things[i];
+
+                float intersectionDistance = thing.IntersectDistance(ray);
+
+                if (intersectionDistance < d)
+                {
+                    d = intersectionDistance;
+                }
+            }
+
+            return d == float.MaxValue ? 0 : d;
         }
 
         private Color TraceRay(Ray ray, Scene scene, int depth)
@@ -97,9 +109,8 @@ namespace RayTracer
                 Vector livec = Vector.Norm(ldis);
                 
                 float neatIsect = TestRay(new Ray() { Start = pos, Dir = livec }, scene);
-                
 
-                bool isInShadow = !((neatIsect == 0) || (neatIsect > Vector.Mag(ldis)));
+                bool isInShadow = !((neatIsect == 0) || (neatIsect > ldis.X * ldis.X + ldis.Y * ldis.Y + ldis.Z * ldis.Z));
 
                 if (!isInShadow)
                 {
@@ -145,12 +156,14 @@ namespace RayTracer
                                         );*/
 
             Color ret = Color.DefaultColor;
+
             ret = Color.Plus(ret, GetNaturalColor(isect.Thing, pos, normal, reflectDir, scene));
             
             if (depth >= MaxDepth)
             {
                 return Color.Plus(ret, Color.Grey);
             }
+
             return Color.Plus(ret, GetReflectionColor(isect.Thing, Vector.Plus(pos, Vector.Times(.001f, reflectDir)), normal, reflectDir, scene, depth));
         }
 
@@ -179,35 +192,68 @@ namespace RayTracer
             return new Vector(vx * invLength, vy * invLength, vz * invLength);
         }
 
-        class ScanlineTask
+        unsafe class ScanlineTask
         {
             private readonly int _width;
-            private readonly byte[] _scanline;
+            private readonly byte* _scanlines;
             private readonly Func<int, int, Color> _trace;
-            private readonly int _offset;
+            private readonly int _numRows;
+            private readonly int _pitch;
+            private readonly CountdownEvent _countEvent;
+            private readonly Thread _thread;
+            private int _y;
+            private bool _skipThread;
 
-            public ScanlineTask(int width, int offset, byte[] scaneline, Func<int, int, Color> trace)
+            public ScanlineTask(bool skipThread, int width, int numRows, int y, byte* scanelines, CountdownEvent countEvent, Func<int, int, Color> trace)
             {
                 _trace = trace;
                 _width = width;
-                _scanline = scaneline;
-                _offset = offset;
+                _scanlines = scanelines;
+                _numRows = numRows;
+                _pitch = _width * 4;
+                _countEvent = countEvent;
+                _y = y;
+
+                _skipThread = skipThread;
+
+                if (!_skipThread)
+                {
+                    _thread = new Thread(Render);
+                    _thread.IsBackground = false;
+                    _thread.Priority = ThreadPriority.Highest;
+                }
             }
 
-            public Task Start(int y)
+            private void Render()
             {
-                return Task.Factory.StartNew(() =>
+                byte* ptr = _scanlines;
+
+                for (int j = 0; j < _numRows; j++, _y++)
+                {
+                    for (int x = 0; x < _width; x++, ptr += 4)
                     {
-                        for (int x = 0, i = _offset; x < _width; x++, i += 4)
-                        {
-                            Color color = _trace(x, y);
-                            
-                            _scanline[i + 3] = 255;
-                            _scanline[i + 0] = (byte)(color.B * 255);
-                            _scanline[i + 1] = (byte)(color.G * 255);
-                            _scanline[i + 2] = (byte)(color.R * 255);
-                        }
-                    });
+                        Color color = _trace(x, _y);
+
+                        ptr[0] = (byte)(color.B * 255);
+                        ptr[1] = (byte)(color.G * 255);
+                        ptr[2] = (byte)(color.R * 255);
+                        ptr[3] = 255;
+                    }
+                }
+
+                _countEvent.Signal();
+            }
+
+            public void Start()
+            {
+                if (!_skipThread)
+                {
+                    _thread.Start();
+                }
+                else
+                {
+                    Render();
+                }
             }
 
         }
@@ -215,34 +261,37 @@ namespace RayTracer
         internal unsafe void Render(Scene scene)
         {
             // TODO:    use more here? need to be height % processorCount == 0.
-            int processorCount = Environment.ProcessorCount;
+            //int processorCount = Environment.ProcessorCount;
+            int processorCount = 12;
             ScanlineTask[] scanLineTasks = new ScanlineTask[processorCount];
-            Task[] tasks = new Task[processorCount];
-            byte[] scanlines = new byte[processorCount * screenWidth * 4];
-            
+            int numRowsPerTask = screenHeight / processorCount;
+            CountdownEvent countEvent = new CountdownEvent(processorCount);
+            int pitch = numRowsPerTask * screenWidth * 4;
+            int currentY = 0;
+            int offset = 0;
+
             for (int i = 0; i < processorCount; i++)
             {
-                scanLineTasks[i] = new ScanlineTask(screenWidth, i * screenWidth * 4, scanlines, (x, y) => TraceRay(new Ray()
+                scanLineTasks[i] = new ScanlineTask(i == processorCount - 1, screenWidth, numRowsPerTask, currentY, scanlines + offset, countEvent, (x, y) => TraceRay(new Ray()
                 {
                     Start = scene.Camera.Pos,
                     Dir = GetPoint(x, y, scene.Camera)
                 }, scene, 0)
                 );
+
+                currentY += numRowsPerTask;
+                offset += pitch;
             }
 
-            for (int y = 0; y < screenHeight; y += processorCount)
+            for (int i = 0; i < processorCount; i++)
             {
-                for (int i = 0; i < processorCount; i++)
-                {
-                    tasks[i] = scanLineTasks[i].Start(y + i);
-                }
-
-                var doneTasks = Task.WhenAll(tasks);
-                doneTasks.Wait();
-
-                setScanlines(y, processorCount, scanlines);
+                scanLineTasks[i].Start();
             }
-            
+
+            //Stopwatch t = Stopwatch.StartNew();
+            countEvent.Wait();
+            //t.Stop();
+            //Console.WriteLine("wait " + t.ElapsedMilliseconds);
         }
 
         internal readonly Scene DefaultScene =
@@ -345,16 +394,10 @@ namespace RayTracer
             this.Show();
             var bits = bitmap.LockBits(new Rectangle(0, 0, width, height), System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
 
-            RayTracer rayTracer = new RayTracer(width, height, (int y, int rows, byte[] scanlines) =>
-            {
-                System.Runtime.InteropServices.Marshal.Copy(scanlines, 0, bits.Scan0 + y * bits.Stride, rows * bits.Stride);
-
-            });
+            RayTracer rayTracer = new RayTracer(width, height, (byte *)bits.Scan0);
 
             rayTracer.Render(rayTracer.DefaultScene);
             bitmap.UnlockBits(bits);
-
-            pictureBox.Invalidate();
 
             timer.Stop();
             Console.WriteLine(timer.ElapsedMilliseconds + " ms");

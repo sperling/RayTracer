@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 
 namespace RayTracer
 {
-    [StructLayout(LayoutKind.Explicit)]
+    [StructLayout(LayoutKind.Explicit, Size = 4)]
     struct _flint
     {
         [FieldOffset(0)]
@@ -19,6 +19,13 @@ namespace RayTracer
         public Surface Surface;
         public abstract Intersection Intersect(Ray ray);
         public abstract Vector Normal(Vector pos);
+        
+        /// <summary>
+        /// Distance squared or float.MaxValue if no hit.
+        /// </summary>
+        /// <param name="ray"></param>
+        /// <returns></returns>
+        public abstract float IntersectDistance(Ray ray);
 
         /*enum {
 		LOOKUP_BITS				= 8,							
@@ -123,6 +130,28 @@ namespace RayTracer
             };
         }
 
+        public override float IntersectDistance(Ray ray)
+        {
+            float eox = Center.X - ray.Start.X;
+            float eoy = Center.Y - ray.Start.Y;
+            float eoz = Center.Z - ray.Start.Z;
+            float v = eox * ray.Dir.X + eoy * ray.Dir.Y + eoz * ray.Dir.Z;
+
+            if (v < 0)
+            {
+                return float.MaxValue;
+            }
+
+            float disc = Radius2 - ((eox * eox + eoy * eoy + eoz * eoz) - v * v);
+
+            if (disc < 0)
+            {
+                return float.MaxValue;
+            }
+
+            return v - disc;
+        }
+
         public override Vector Normal(Vector pos)
         {
             float vx = pos.X - Center.X;
@@ -153,6 +182,22 @@ namespace RayTracer
                 Ray = ray,
                 Dist = (Norm.X * ray.Start.X + Norm.Y * ray.Start.Y + Norm.Z * ray.Start.Z + Offset) / (-denom)
             };
+        }
+
+        public override float IntersectDistance(Ray ray)
+        {
+            float denom = Norm.X * ray.Dir.X + Norm.Y * ray.Dir.Y + Norm.Z * ray.Dir.Z;
+            if (denom > 0) return float.MaxValue;
+
+            // TODO:    is correct? this is never called.
+            return (Norm.X * ray.Start.X + Norm.Y * ray.Start.Y + Norm.Z * ray.Start.Z + Offset);
+
+            /*return new Intersection()
+            {
+                Thing = this,
+                Ray = ray,
+                Dist = (Norm.X * ray.Start.X + Norm.Y * ray.Start.Y + Norm.Z * ray.Start.Z + Offset) / (-denom)
+            };*/
         }
 
         public override Vector Normal(Vector pos)
