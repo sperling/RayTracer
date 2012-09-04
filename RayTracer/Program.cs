@@ -104,18 +104,26 @@ namespace RayTracer
             for (int i = 0; i < scene.Lights.Length; i++)
             {
                 Light light = scene.Lights[i];
-                
-                Vector ldis = Vector.Minus(light.Pos, pos);
-                Vector livec = Vector.Norm(ldis);
-                
+
+                float vx = light.Pos.X - pos.X;
+                float vy = light.Pos.Y - pos.Y;
+                float vz = light.Pos.Z - pos.Z;
+
+                float sqrLength, invLength;
+
+                sqrLength = vx * vx + vy * vy + vz * vz;
+                invLength = SceneObject.InvSqrt(sqrLength);
+
+                Vector livec = new Vector(vx * invLength, vy * invLength, vz * invLength);
+
                 float neatIsect = TestRay(new Ray() { Start = pos, Dir = livec }, scene);
 
-                bool isInShadow = !((neatIsect == 0) || (neatIsect > ldis.X * ldis.X + ldis.Y * ldis.Y + ldis.Z * ldis.Z));
+                bool isInShadow = !((neatIsect == 0) || (neatIsect > vx * vx + vy * vy + vz * vz));
 
                 if (!isInShadow)
                 {
-                    float illum = Vector.Dot(livec, norm);
-                    float specular = Vector.Dot(livec, rdNormalized);
+                    float illum = livec.X * norm.X + livec.Y * norm.Y + livec.Z * norm.Z;
+                    float specular = livec.X * rdNormalized.X + livec.Y * rdNormalized.Y + livec.Z * rdNormalized.Z;
 
                     Color lcolor = illum > 0 ? Color.Times(illum, light.Color) : Color.Background;
                     
@@ -155,16 +163,17 @@ namespace RayTracer
                                         d.Z - (2.0f * normal.Z * d.Z * normal.Z)
                                         );*/
 
-            Color ret = Color.DefaultColor;
+            Color natColor = GetNaturalColor(isect.Thing, pos, normal, reflectDir, scene);
+            Color ret = new Color(Color.DefaultColor.R + natColor.R,Color.DefaultColor.R + natColor.G, Color.DefaultColor.R + natColor.B);
 
-            ret = Color.Plus(ret, GetNaturalColor(isect.Thing, pos, normal, reflectDir, scene));
-            
             if (depth >= MaxDepth)
             {
-                return Color.Plus(ret, Color.Grey);
+                return new Color(ret.R + Color.Grey.R, ret.G + Color.Grey.G, ret.B + Color.Grey.B);
             }
 
-            return Color.Plus(ret, GetReflectionColor(isect.Thing, Vector.Plus(pos, Vector.Times(.001f, reflectDir)), normal, reflectDir, scene, depth));
+            Color refColor = GetReflectionColor(isect.Thing, new Vector(pos.X + .001f * reflectDir.X, pos.Y + .001f * reflectDir.Y, pos.Z + .001f * reflectDir.Z), normal, reflectDir, scene, depth);
+
+            return new Color(ret.R + refColor.R, ret.G + refColor.G, ret.B + refColor.B);
         }
 
         private float RecenterX(float x)
